@@ -3,7 +3,6 @@ import cv2
 from facenet_pytorch import MTCNN, InceptionResnetV1
 import os
 import numpy as np
-from imutils.video import FPS
 
 
 # Load pre-trained MTCNN for face detection
@@ -36,10 +35,6 @@ ref_embeddings_arr = np.array(list(reference_embeddings.values()))
 # Open camera for real-time face detection
 cap = cv2.VideoCapture(2)
 time.sleep(0.1)
-
-# Initialize the FileVideoStream and start the FPS counter
-# vs = FileVideoStream(cap).start()
-fps = FPS().start()
 
 # Define the codec and create a VideoWriter object
 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -82,8 +77,6 @@ while True:
             color = (0, 255, 0) if match_found else (0, 0, 255)
             cv2.rectangle(frame, (x0, y0), (x1, y1), color, 2)
             # cv2.putText(frame, f"p={p:.2%}", (x0, y1 + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-    fps.update()
     
     cv2.imshow("Face Detection", frame)
     out.write(frame)
@@ -91,8 +84,6 @@ while True:
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
     
-fps.stop()
-print(f"Approximate FPS: {fps.fps():.2f}")
 
 out.release()
 cap.release()
