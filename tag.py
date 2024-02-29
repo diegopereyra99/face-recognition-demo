@@ -6,14 +6,14 @@ import os
 mtcnn_detector = MTCNN()
 
 # Open camera for real-time face detection
-cap = cv2.VideoCapture(2)
+cap = cv2.VideoCapture(1)
 
 while True:
     ret, frame = cap.read()
     original = frame.copy()
 
     # Detect faces using MTCNN
-    boxes, _ = mtcnn_detector.detect(frame[None])
+    boxes, _ = mtcnn_detector.detect(frame[None, :, :, ::-1])
     boxes = boxes[0] # Remove batch dimension
     
     if boxes is not None:

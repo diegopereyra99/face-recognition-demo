@@ -1,90 +1,43 @@
-import time
 import cv2
-from facenet_pytorch import MTCNN, InceptionResnetV1
-import os
 import numpy as np
+from recognizer import FaceRecognizer
 
+reco = FaceRecognizer()
+reco.load_database()
 
-# Load pre-trained MTCNN for face detection
-mtcnn_detector = MTCNN(keep_all=True)
-
-# Load pre-trained ResNet model for face recognition
-resnet_model = InceptionResnetV1(pretrained='vggface2').eval()
-
-# Folder containing the database faces
-database_folder = 'data/faces'
-
-# Preprocess and save reference embeddings
-reference_embeddings = {}
-names = []
-for filename in os.listdir(database_folder):
-    if filename.endswith(".jpg") or filename.endswith(".png"):
-        img_path = os.path.join(database_folder, filename)
-        img = cv2.imread(img_path)
-        
-        # Detect face using MTCNN
-        face = mtcnn_detector(img)[0]
-        
-        # Calculate embedding for the detected face
-        embedding = resnet_model(face.unsqueeze(0)).detach().numpy()
-        reference_embeddings[filename] = embedding
-        names.append(filename.split(".")[0].capitalize())
-        
-ref_embeddings_arr = np.array(list(reference_embeddings.values()))
-
-# Open camera for real-time face detection
-cap = cv2.VideoCapture(2)
-time.sleep(0.1)
-
-# Define the codec and create a VideoWriter object
-fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-out = cv2.VideoWriter('output.mp4', fourcc, 10.0, (640, 480))
+cap = cv2.VideoCapture(1)
 
 while True:
     ret, frame = cap.read()
+    original = frame.copy()
     if not ret:
         break
     
-    # Detect faces
-    batch_boxes, batch_probs = mtcnn_detector.detect(frame)
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    faces, boxes = reco.extract_faces(rgb, return_bbox=True)
     
-    if batch_boxes is not None and any(p > 0.9 for p in batch_probs):
-        
-        # Extract faces
-        faces = mtcnn_detector.extract(frame, batch_boxes, None)
+    if len(boxes) > 0:
+            
+        matches = reco.find_matches(faces)
+        # matches = [None] * len(boxes)
 
-        for box, face, p in zip(batch_boxes, faces, batch_probs):
+        for box, face, match in zip(boxes, faces, matches):
             x0, y0, x1, y1 = [int(b) for b in box]
+            # ff = face.detach().numpy().transpose(1, 2, 0)[:, :, ::-1]
+            # frame[:160, :160] = (ff * 128 + 127.5).astype(np.uint8)
             
-            # Calculate embedding for the detected face
-            detected_embedding = resnet_model(face.unsqueeze(0)).detach().numpy()
-
-            # Compare with all reference embeddings in the database
-            match_found = False
-            similarities = np.inner(ref_embeddings_arr, detected_embedding)
+            if match is not None:
+                cv2.putText(frame, match, (x0, y0 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             
-            for filename, similarity in zip(names, similarities):
-                print(f"Similarity with {filename}: {similarity.squeeze():.4f}")
-
-            # You can set a threshold for similarity to decide if it's a match
-            threshold = 0.5
-            if (similarities > threshold).any():
-                match_found = True
-                name = names[similarities.argmax()]
-                cv2.putText(frame, name, (x0, y0 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                
             # Draw bounding box based on match status
-            color = (0, 255, 0) if match_found else (0, 0, 255)
+            color = (0, 0, 255) if match is None else (0, 255, 0)
             cv2.rectangle(frame, (x0, y0), (x1, y1), color, 2)
             # cv2.putText(frame, f"p={p:.2%}", (x0, y1 + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
     
     cv2.imshow("Face Detection", frame)
-    out.write(frame)
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
     
-
-out.release()
 cap.release()
 cv2.destroyAllWindows()
