@@ -1,2 +1,3 @@
 opencv-python
 facenet-pytorch
+norfair

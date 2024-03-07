@@ -1,21 +1,26 @@
 import time
+import shutil
 from facenet_pytorch import InceptionResnetV1, MTCNN
 import os
 import numpy as np
 import cv2
 from PIL import Image
 import torch
+import csv
 
-    
+
 class FaceRecognizer(object):
     
-    def __init__(self, match_threshold=0.5, detection_frame_size=320) -> None:
+    def __init__(self, match_threshold=0.5, detection_frame_size=320, data_folder="./data_fr") -> None:
         self.face_detector = MTCNN(keep_all=True, image_size=160)
-        self.detection_frame_size = detection_frame_size
-        # self.face_detector = mediapipe_detector
         self.resnet_model = InceptionResnetV1(pretrained='vggface2').eval()
+        self.detection_frame_size = detection_frame_size
         self.match_threshold = match_threshold
-        self.reference_embeddings = {}   
+        self.reference_embeddings = {}
+        # self.data_folder = data_folder
+        self.csv_fname = f"data/csv/{time.strftime('%Y_%m_%d-%H_%M_%S')}.csv"
+        os.makedirs(os.path.dirname(self.csv_fname), exist_ok=True)
+        
         
     def load_database(self, database_path="./data/faces") -> None:
         for filename in os.listdir(database_path):
@@ -33,7 +38,6 @@ class FaceRecognizer(object):
             
     def extract_faces(self, frame, align=False, return_bbox=False, resize_frame=True):
         # Assume frame is in RGB
-        # MTCNN
         if resize_frame:
             size = frame.shape[:2]
             ratio = round(max(size) / self.detection_frame_size)
@@ -43,19 +47,18 @@ class FaceRecognizer(object):
             ratio = 1
             scaled_frame = frame
             
-        # tic = time.time()*1000
+        tic = time.time()*1000
         bboxes, probs, landmarks = self.face_detector.detect(scaled_frame, landmarks=True)
         if bboxes is not None:
             bboxes *= ratio
             landmarks *= ratio
-        # toc1 = time.time()*1000
             faces = self.face_detector.extract(frame, bboxes, None)
-        # toc2 = time.time()*1000
         else:
             bboxes = []
             faces = []
         
-        # print(f"{toc2-tic:.2f} ms, {toc1-tic:.2f} ms, {toc2-toc1:.2f} ms")
+        toc2 = time.time()*1000
+        # print(f"{toc2-tic:.2f} ms")
         
         if align and landmarks is not None:
             for i, lmark in enumerate(landmarks):
@@ -99,6 +102,50 @@ class FaceRecognizer(object):
             
         return matches
     
+    def group_similarities(self, img_folder):
+        filenames = [os.path.join(img_folder, fn) for fn in os.listdir(img_folder)]
+        # it should be checked that there are less than n imgs (ex.: n=1000)
+        raw_imgs = [np.array(Image.open(fn)) for fn in filenames]
+        inp_tensor = torch.stack([np2torch(im.copy()) for im in raw_imgs])
+        
+        similarities = self.calculate_similarities(inp_tensor)
+        
+        return similarities
+        
+    def log_tracked_face(self, img_folder):
+        
+        similarities = self.group_similarities(img_folder)
+        
+        num_matches = (similarities > self.match_threshold).sum(axis=0)
+        matches_count = dict(zip(self.ref_names, num_matches))
+        
+        info = {}
+        full_date = os.listdir(img_folder)[0].split("-")[0]
+        info["date"] = full_date[:10].replace("_", "-")
+        info["hour"] = full_date[11:].replace("_", ":")
+        
+        if num_matches.sum() > 0:
+            info["recognized_person"] = max(matches_count, key=matches_count.get)
+            shutil.rmtree(img_folder)
+        else:
+            info["recognized_person"] = None
+
+        info["num_detections"] = len(similarities)
+        info["top1_num_recognitions"] = num_matches.max()
+        info["total_recognitions"] = num_matches.sum()
+        info["n_unique_recognitions"] = sum(num_matches > 0)
+        info["object_id"] = os.path.basename(img_folder)
+        
+        file_exists = os.path.isfile(self.csv_fname)
+        with open(self.csv_fname, 'a', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=list(info.keys()))
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(info)
+        
+        print(info)
+
+        
 
 def align_face(img, left_eye, right_eye):
     """
